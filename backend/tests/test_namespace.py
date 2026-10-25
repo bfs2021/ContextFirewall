@@ -2,20 +2,46 @@ from __future__ import annotations
 
 from app.auth import sanitize_namespace, write_allowed
 from app.cognee_runtime.forget import orphan_node_ids
-from app.cognee_runtime.recall import effective_namespace, in_namespace
+from app.cognee_runtime.recall import effective_namespace, in_namespace, namespace_nodeset
 
 
-def test_effective_namespace_defaults_untagged_to_demo():
-    assert effective_namespace({}) == "demo"
-    assert effective_namespace({"namespace": None}) == "demo"
+def test_effective_namespace_legacy_firewall_nodes_are_demo():
+    for node_type in ("Repo", "AgentSession", "Memory"):
+        assert effective_namespace({"type": node_type}) == "demo"
+        assert effective_namespace({"type": node_type, "namespace": None}) == "demo"
+
+
+def test_effective_namespace_unattributable_nodes_are_unreadable():
+    assert effective_namespace({}) is None
+    assert effective_namespace({"type": "Entity", "name": "taskflow-api"}) is None
+    assert effective_namespace({"type": "DocumentChunk", "text": "x", "belongs_to_set": []}) is None
+    # SessionEvent inherits its session's namespace; on its own it is not attributable.
+    assert effective_namespace({"type": "SessionEvent"}) is None
+    for allowed in (None, set(), {"demo"}, {"demo", "public"}):
+        assert not in_namespace({"type": "DocumentChunk", "text": "tenant transcript"}, allowed)
+
+
+def test_effective_namespace_reads_cognee_node_set_tags():
+    assert namespace_nodeset("acme") == "cf_ns_acme"
+    assert effective_namespace({"type": "Entity", "belongs_to_set": ["cf_ns_acme"]}) == "acme"
+    assert effective_namespace({"type": "Entity", "belongs_to_set": '["cf_ns_acme"]'}) == "acme"
+    assert effective_namespace({"type": "Entity", "belongs_to_set": [{"name": "cf_ns_demo"}]}) == "demo"
+    assert effective_namespace({"type": "Rule", "belongs_to_set": ["coding_agent_rules_acme"]}) == "acme"
+    assert effective_namespace({"type": "Rule", "belongs_to_set": ["coding_agent_rules"]}) == "demo"
+    assert effective_namespace({"type": "Entity", "belongs_to_set": ["cf_ns_"]}) is None
+    assert effective_namespace({"type": "Entity", "belongs_to_set": ["unrelated_set"]}) is None
 
 
 def test_in_namespace_respects_demo_and_public():
     props = {"namespace": "public"}
     assert not in_namespace(props, {"demo"})
     assert in_namespace(props, {"demo", "public"})
-    assert in_namespace({}, None)
-    assert in_namespace({}, set())
+    assert in_namespace({"type": "Memory"}, None)
+    assert in_namespace({"type": "Memory"}, set())
+    tagged = {"type": "Entity", "belongs_to_set": ["cf_ns_acme"]}
+    assert in_namespace(tagged, {"acme"})
+    assert not in_namespace(tagged, None)
+    assert not in_namespace(tagged, {"demo", "public"})
 
 
 def test_write_allowed_requires_exact_bearer_when_token_set(monkeypatch):

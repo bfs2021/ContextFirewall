@@ -19,6 +19,7 @@ from typing import Any, List, Optional, Tuple
 from app.firewall.secrets import redact_text
 
 from .bootstrap import configure_cognee
+from .recall import namespace_nodeset
 from .schema import (
     STATUS_CANDIDATE,
     AgentSession,
@@ -193,7 +194,8 @@ async def ingest_session(session: dict, *, cognify: bool = True, namespace: str 
     cognified = False
     if cognify:
         transcript = render_session_text(session)
-        await cognee.add(transcript, dataset_name=CF_DATASET)
+        # Tag derived nodes with the namespace; untagged ones are hidden from every reader.
+        await cognee.add(transcript, dataset_name=CF_DATASET, node_set=[namespace_nodeset(namespace)])
         await cognee.cognify(datasets=[CF_DATASET])
         cognified = True
 
