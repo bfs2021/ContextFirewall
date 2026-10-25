@@ -60,7 +60,7 @@ async def graph_view(limit: int = 400, namespaces=None) -> Dict[str, Any]:
     try:
         _engine, raw_nodes, raw_edges = await _get_graph()
     except Exception as exc:  # noqa: BLE001
-        return {"nodes": [], "edges": [], "error": repr(exc)}
+        return {"nodes": [], "edges": [], "error": "Failed to load the graph. See server logs for details."}
 
     session_namespaces: Dict[str, Dict[str, Any]] = {}
     for entry in raw_nodes:
@@ -74,7 +74,9 @@ async def graph_view(limit: int = 400, namespaces=None) -> Dict[str, Any]:
 
     nodes_out: List[Dict[str, Any]] = []
     seen: set[str] = set()
-    for entry in raw_nodes[:limit]:
+    # Filter by namespace first, then apply limit, so a tenant's graph is not
+    #    emptied by other tenants' data volume (#46).
+    for entry in raw_nodes:
         try:
             nid, props = entry if isinstance(entry, tuple) else (entry.get("id"), entry)
         except Exception:  # noqa: BLE001
@@ -100,6 +102,8 @@ async def graph_view(limit: int = 400, namespaces=None) -> Dict[str, Any]:
                 "props": _safe_props(props),
             }
         )
+        if len(nodes_out) >= limit:
+            break
 
     edges_out: List[Dict[str, Any]] = []
     for entry in raw_edges:
